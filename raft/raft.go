@@ -252,19 +252,21 @@ func (c *Config) validate() error {
 }
 
 type raft struct {
+	// 节点 id 编号
 	id uint64
-
+	// 任期编号
 	Term uint64
+	// 选举了谁当 leader（投票给了谁）
 	Vote uint64
 
 	readStates []ReadState
 
-	// the log
+	// 日志（未持久化 + 持久化都有）
 	raftLog *raftLog
 
 	maxMsgSize         uint64
 	maxUncommittedSize uint64
-	// TODO(tbg): rename to trk.
+	// 其他 follower 的复制进度表
 	prs tracker.ProgressTracker
 
 	state StateType
@@ -289,6 +291,7 @@ type raft struct {
 	// an estimate of the size of the uncommitted tail of the Raft log. Used to
 	// prevent unbounded log growth. Only maintained by the leader. Reset on
 	// term changes.
+	// 标识还没有 commit 的一个量，计量数据
 	uncommittedSize uint64
 
 	readOnly *readOnly
@@ -297,6 +300,8 @@ type raft struct {
 	// or candidate.
 	// number of ticks since it reached last electionTimeout or received a
 	// valid message from current leader when it is a follower.
+	// 如果这个数值超过一个值，那么就说明和 leader 失联了，就可以去净增选举了 //
+	//只要由 leader 消息过来（心跳，或者复制），这个值就会被清零
 	electionElapsed int
 
 	// number of ticks since it reached last heartbeatTimeout.
@@ -305,7 +310,7 @@ type raft struct {
 
 	checkQuorum bool
 	preVote     bool
-
+	// leader 与 follower 之间的心跳超时时间
 	heartbeatTimeout int
 	electionTimeout  int
 	// randomizedElectionTimeout is a random number between
@@ -357,7 +362,7 @@ func newRaft(c *Config) *raft {
 		readOnly:                  newReadOnly(c.ReadOnlyOption),
 		disableProposalForwarding: c.DisableProposalForwarding,
 	}
-
+	// 恢复集群配置
 	cfg, prs, err := confchange.Restore(confchange.Changer{
 		Tracker:   r.prs,
 		LastIndex: raftlog.lastIndex(),
@@ -373,6 +378,8 @@ func newRaft(c *Config) *raft {
 	if c.Applied > 0 {
 		raftlog.appliedTo(c.Applied)
 	}
+	// 启动都是follower状态
+
 	r.becomeFollower(r.Term, None)
 
 	var nodesStrs []string
@@ -692,6 +699,7 @@ func (r *raft) tickHeartbeat() {
 }
 
 func (r *raft) becomeFollower(term uint64, lead uint64) {
+	// 这个很重要
 	r.step = stepFollower
 	r.reset(term)
 	r.tick = r.tickElection

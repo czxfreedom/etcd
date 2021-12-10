@@ -46,32 +46,38 @@ type Raft interface {
 type Transporter interface {
 	// Start starts the given Transporter.
 	// Start MUST be called before calling other functions in the interface.
+	//启动
 	Start() error
 	// Handler returns the HTTP handler of the transporter.
 	// A transporter HTTP handler handles the HTTP requests
 	// from remote peers.
 	// The handler MUST be used to handle RaftPrefix(/raft)
 	// endpoint.
+	//提供路由表处理
 	Handler() http.Handler
 	// Send sends out the given messages to the remote peers.
 	// Each message has a To field, which is an id that maps
 	// to an existing peer in the transport.
 	// If the id cannot be found in the transport, the message
 	// will be ignored.
+	//⽹络消息发送
 	Send(m []raftpb.Message)
 	// SendSnapshot sends out the given snapshot message to a remote peer.
 	// The behavior of SendSnapshot is similar to Send.
+	//发送快照
 	SendSnapshot(m snap.Message)
 	// AddRemote adds a remote with given peer urls into the transport.
 	// A remote helps newly joined member to catch up the progress of cluster,
 	// and will not be used after that.
 	// It is the caller's responsibility to ensure the urls are all valid,
 	// or it panics.
+	//新加节点
 	AddRemote(id types.ID, urls []string)
 	// AddPeer adds a peer with given peer urls into the transport.
 	// It is the caller's responsibility to ensure the urls are all valid,
 	// or it panics.
 	// Peer urls are used to connect to the remote peer.
+	// 初始化 raft 集群⽹络节点
 	AddPeer(id types.ID, urls []string)
 	// RemovePeer removes the peer with given id.
 	RemovePeer(id types.ID)
@@ -108,10 +114,10 @@ type Transport struct {
 
 	TLSInfo transport.TLSInfo // TLS information used when creating connection
 
-	ID          types.ID   // local member ID
-	URLs        types.URLs // local peer URLs
+	ID          types.ID   // local member ID 本地节点 id
+	URLs        types.URLs // local peer URLs 本地节点的 url
 	ClusterID   types.ID   // raft cluster ID for request validation
-	Raft        Raft       // raft state machine, to which the Transport forwards received messages and reports status
+	Raft        Raft       // 状态机的处理⽅法 raft state machine, to which the Transport forwards received messages and reports status
 	Snapshotter *snap.Snapshotter
 	ServerStats *stats.ServerStats // used to record general transportation statistics
 	// used to record transportation statistics with followers when
@@ -128,7 +134,7 @@ type Transport struct {
 
 	mu      sync.RWMutex         // protect the remote and peer map
 	remotes map[types.ID]*remote // remotes map that helps newly joined member to catch up
-	peers   map[types.ID]Peer    // peers map
+	peers   map[types.ID]Peer    // peers map // 其他节点的通信对象
 
 	pipelineProber probing.Prober
 	streamProber   probing.Prober
@@ -163,9 +169,13 @@ func (t *Transport) Handler() http.Handler {
 	streamHandler := newStreamHandler(t, t, t.Raft, t.ID, t.ClusterID)
 	snapHandler := newSnapshotHandler(t, t.Raft, t.Snapshotter, t.ClusterID)
 	mux := http.NewServeMux()
+	//数据传输通道，⾮⻓链接，每⼀次请求都是⼀个完整 http 请求
 	mux.Handle(RaftPrefix, pipelineHandler)
+	//数据传输通道，⻓链接
 	mux.Handle(RaftStreamPrefix+"/", streamHandler)
+	//快照传输路径
 	mux.Handle(RaftSnapshotPrefix, snapHandler)
+	//⼼跳路径
 	mux.Handle(ProbingPrefix, probing.NewHandler())
 	return mux
 }

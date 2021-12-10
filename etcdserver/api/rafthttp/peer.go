@@ -95,24 +95,27 @@ type Peer interface {
 // It is only used when the stream has not been established.
 type peer struct {
 	lg *zap.Logger
-
+	// 本节点 ID
 	localID types.ID
 	// id of the remote raft peer node
+	// 对端节点 ID
 	id types.ID
-
+	// raft 业务处理（ ⽐如 raftNode ）
 	r Raft
 
 	status *peerStatus
-
+	// 数据通道选取器
 	picker *urlPicker
-
+	// 流通道：写通道（两种流格式）
 	msgAppV2Writer *streamWriter
 	writer         *streamWriter
-	pipeline       *pipeline
-	snapSender     *snapshotSender // snapshot sender to send v3 snapshot messages
+	// 数据包通道
+	pipeline   *pipeline
+	snapSender *snapshotSender // snapshot sender to send v3 snapshot messages
+	// 流通道：读通道（两种流格式）
 	msgAppV2Reader *streamReader
 	msgAppReader   *streamReader
-
+	// 这两个 channel 是给底下数据通道⽤的，收到数据的时候怎么递交给上层？就⽤这个 channel 就⾏
 	recvc chan raftpb.Message
 	propc chan raftpb.Message
 

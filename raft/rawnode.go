@@ -45,6 +45,7 @@ type RawNode struct {
 // state manually by setting up a Storage that has a first index > 1 and which
 // stores the desired ConfState as its InitialState.
 func NewRawNode(config *Config) (*RawNode, error) {
+	// 这里调用初始化newRaft
 	r := newRaft(config)
 	rn := &RawNode{
 		raft: r,
