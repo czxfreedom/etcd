@@ -40,8 +40,10 @@ type kv struct {
 func newKVStore(snapshotter *snap.Snapshotter, proposeC chan<- string, commitC <-chan *string, errorC <-chan error) *kvstore {
 	s := &kvstore{proposeC: proposeC, kvStore: make(map[string]string), snapshotter: snapshotter}
 	// replay log into key-value map
+	//第一次会返回
 	s.readCommits(commitC, errorC)
 	// read commits from raft into kvStore map until error
+	//开启协程堵塞监听commitC 通道 ,当commitc里面有值了 就应用到kv map中
 	go s.readCommits(commitC, errorC)
 	return s
 }
@@ -74,12 +76,13 @@ func (s *kvstore) readCommits(commitC <-chan *string, errorC <-chan error) {
 				log.Panic(err)
 			}
 			log.Printf("loading snapshot at term %d and index %d", snapshot.Metadata.Term, snapshot.Metadata.Index)
+			//将之前某时刻快照设置为状态机目前的状态
 			if err := s.recoverFromSnapshot(snapshot.Data); err != nil {
 				log.Panic(err)
 			}
 			continue
 		}
-
+		//先对数据解码
 		var dataKv kv
 		dec := gob.NewDecoder(bytes.NewBufferString(*data))
 		if err := dec.Decode(&dataKv); err != nil {

@@ -41,6 +41,8 @@ func main() {
 	//当raft中数据可以提交时会向commitC通道发送消息，这样kvstore就可以监听该通道消息，当收到提交消息时会修改kvstore内存中的值
 	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC)
 	//直到snapshotterReady通道有数据了，即snapshot可用了，才可以创建kvstore实例
+
+	//只需要初始化内存状态机，并且监听从raftNode传来的准备提交的日志的channel即可，以将commitC读到的日志应用到内存状态机
 	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC)
 
 	// the key-value http handler will propose updates to raft

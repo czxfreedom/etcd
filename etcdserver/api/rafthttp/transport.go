@@ -37,6 +37,7 @@ import (
 var plog = logutil.NewMergeLogger(capnslog.NewPackageLogger("go.etcd.io/etcd", "rafthttp"))
 
 type Raft interface {
+	// 消息处理接口，raftNode 实现了此函数，并调用底层的 raft 协议库 node 的 Step 函数来处理消息
 	Process(ctx context.Context, m raftpb.Message) error
 	IsIDRemoved(id uint64) bool
 	ReportUnreachable(id uint64)
@@ -47,24 +48,25 @@ type Transporter interface {
 	// Start starts the given Transporter.
 	// Start MUST be called before calling other functions in the interface.
 	//启动
+	// 在处理具体的消息收发之前，需要启动网络传输组件。它在应用初始化（如初始化 raftNode）时启动
 	Start() error
 	// Handler returns the HTTP handler of the transporter.
 	// A transporter HTTP handler handles the HTTP requests
 	// from remote peers.
 	// The handler MUST be used to handle RaftPrefix(/raft)
 	// endpoint.
-	//提供路由表处理
+	// 消息传输组件的消息处理器，它对不同消息配置不同的消息处理器（如pipelineHandler、streamHandler）。
 	Handler() http.Handler
 	// Send sends out the given messages to the remote peers.
 	// Each message has a To field, which is an id that maps
 	// to an existing peer in the transport.
 	// If the id cannot be found in the transport, the message
 	// will be ignored.
-	//⽹络消息发送
+	// 消息发送接口，即将消息发送到指定 id 的节点
 	Send(m []raftpb.Message)
 	// SendSnapshot sends out the given snapshot message to a remote peer.
 	// The behavior of SendSnapshot is similar to Send.
-	//发送快照
+	//发送快照数据接口
 	SendSnapshot(m snap.Message)
 	// AddRemote adds a remote with given peer urls into the transport.
 	// A remote helps newly joined member to catch up the progress of cluster,
@@ -104,6 +106,7 @@ type Transporter interface {
 // received from peerURLs.
 // User needs to call Start before calling other functions, and call
 // Stop when the Transport is no longer used.
+// Transport 实现了 Transporter 接口，用户使用其提供的接口实现完成消息收发
 type Transport struct {
 	Logger *zap.Logger
 
@@ -122,7 +125,7 @@ type Transport struct {
 	ServerStats *stats.ServerStats // used to record general transportation statistics
 	// used to record transportation statistics with followers when
 	// performing as leader in raft protocol
-	LeaderStats *stats.LeaderStats
+	LeaderStats *stats.LeaderStats // leader 节点用于记录传输消息到 follower 的相关数据统计
 	// ErrorC is used to report detected critical errors, e.g.,
 	// the member has been permanently removed from the cluster
 	// When an error is received from ErrorC, user should stop raft state

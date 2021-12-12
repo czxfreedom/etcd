@@ -60,10 +60,13 @@ type Peer interface {
 	// and has no promise that the message will be received by the remote.
 	// When it fails to send message out, it will report the status to underlying
 	// raft.
+	// 发送消息的接口，注意此接口是 non-blocking 的，但它不承诺可靠消息传输，但会报告出错信息
+
 	send(m raftpb.Message)
 
 	// sendSnap sends the merged snapshot message to the remote peer. Its behavior
 	// is similar to send.
+	// 传输快照数据
 	sendSnap(m snap.Message)
 
 	// update updates the urls of remote peer.
@@ -73,6 +76,7 @@ type Peer interface {
 	// stream usage. After the call, the ownership of the outgoing
 	// connection hands over to the peer. The peer will close the connection
 	// when it is no longer used.
+	// 一旦接收到对端的连接，会把连接 attach 到节点 encoder 的 writer 中，以协同 encoder 和对端decoder的工作了
 	attachOutgoingConn(conn *outgoingConn)
 	// activeSince returns the time that the connection with the
 	// peer becomes active.
@@ -243,9 +247,11 @@ func (p *peer) send(m raftpb.Message) {
 	if paused {
 		return
 	}
+	// 1. 根据消息的类型选择具体的传输方式
 
 	writec, name := p.pick(m)
 	select {
+	// 2. 将消息放到管道中
 	case writec <- m:
 	default:
 		p.r.ReportUnreachable(m.To)

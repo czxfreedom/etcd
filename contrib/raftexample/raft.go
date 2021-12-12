@@ -230,14 +230,22 @@ func (rc *raftNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 }
 
 // replayWAL replays WAL entries into the raft instance.
+// 重放节点 WAL 日志，以将重新初始化 raft 实例的内存状态
 func (rc *raftNode) replayWAL() *wal.WAL {
 	log.Printf("replaying WAL of member %d", rc.id)
+	// 1. 加载快照数据
 	snapshot := rc.loadSnapshot()
+	// 2. 借助快照数据（的相关属性）来打开 WAL 日志。应用只会重放快照时间点（索引）之后的日志，
+	//因为快照数据直接记录着状态机的状态数据（这等同于将快照数据所对应的 WAL 日志重放），
+	//因此可以直接应用到内存状态结构。换言之，不需要重放 WAL 包含的所有的日志项，
+	//这明显可以加快日志重放的速度。结合 openWAL 函数可以得出结论。
 	w := rc.openWAL(snapshot)
+	// 3. 从 WAL 日志中读取事务日志
 	_, st, ents, err := w.ReadAll()
 	if err != nil {
 		log.Fatalf("raftexample: failed to read WAL (%v)", err)
 	}
+	// 4. 构建 raft 实例的内存状态结构
 	rc.raftStorage = raft.NewMemoryStorage()
 	if snapshot != nil {
 		rc.raftStorage.ApplySnapshot(*snapshot)
@@ -245,9 +253,11 @@ func (rc *raftNode) replayWAL() *wal.WAL {
 	rc.raftStorage.SetHardState(st)
 
 	// append to storage so raft starts at the right place in log
+	// 6. 将 WAL 记录的日志项更新到内存状态结构
 	rc.raftStorage.Append(ents)
 	// send nil once lastIndex is published so client knows commit channel is current
 	if len(ents) > 0 {
+		// 更新最后一条日志索引的记录
 		rc.lastIndex = ents[len(ents)-1].Index
 	} else {
 		rc.commitC <- nil
@@ -308,16 +318,18 @@ func (rc *raftNode) startRaft() {
 	}
 	// 初始化底层的 etcd-raft 模块，这里会根据 WAL 日志的回放情况，
 	// 判断当前节点是首次启动还是重新启动
+	//存在wal文件则重启节点(并非第一次启动)
 	if oldwal {
 		rc.node = raft.RestartNode(c)
 	} else {
 		startPeers := rpeers
+		// 节点可以通过两种不同的方式来加入集群，应用以 join 字段来区分
 		if rc.join {
 			startPeers = nil
 		}
 		rc.node = raft.StartNode(c, startPeers)
 	}
-
+	// 初始化集群网格传输组件
 	rc.transport = &rafthttp.Transport{
 		Logger:      zap.NewExample(),
 		ID:          types.ID(rc.id),
@@ -329,13 +341,13 @@ func (rc *raftNode) startRaft() {
 	}
 	// 启动网络服务相关组件
 	rc.transport.Start()
-	// 建立与集群中其他各个节点的连接
+	// 建立与集群中其他各个节点的连接 启动数据传输通道,并且会启动数据传输通道
 	for i := range rc.peers {
 		if i+1 != rc.id {
 			rc.transport.AddPeer(types.ID(i+1), []string{rc.peers[i]})
 		}
 	}
-	// 跟其他raft节点进行网络通信
+	// 跟其他raft节点进行网络通信 开启了一个http raft server 支持几个路由请求
 	go rc.serveRaft()
 	//channel 消息的处理，真正核⼼的定制，处理 proposeC，confChangeC，commitC，errorC 这四个通道
 	go rc.serveChannels()
@@ -376,24 +388,29 @@ func (rc *raftNode) publishSnapshot(snapshotToSave raftpb.Snapshot) {
 var snapshotCatchUpEntriesN uint64 = 10000
 
 func (rc *raftNode) maybeTriggerSnapshot() {
+	// 1. 只有当前已经提交应用的日志的数据达到 rc.snapCount 才会触发快照操作
 	if rc.appliedIndex-rc.snapshotIndex <= rc.snapCount {
 		return
 	}
 
 	log.Printf("start snapshot [applied index: %d | last snapshot index: %d]", rc.appliedIndex, rc.snapshotIndex)
+	// 2. 生成此时应用的状态机的状态数据，此函数由应用提供，可以在 kvstore.go 找到它的定义
 	data, err := rc.getSnapshot()
 	if err != nil {
 		log.Panic(err)
 	}
+	// 2. 结合已经提交的日志以及配置状态数据正式生成快照
 	snap, err := rc.raftStorage.CreateSnapshot(rc.appliedIndex, &rc.confState, data)
 	if err != nil {
 		panic(err)
 	}
+	// 4. 快照存盘
 	if err := rc.saveSnap(snap); err != nil {
 		panic(err)
 	}
 
 	compactIndex := uint64(1)
+	// 5. 判断是否达到阶段性整理内存日志的条件，若达到，则将内存中的数据进行阶段性整理标记
 	if rc.appliedIndex > snapshotCatchUpEntriesN {
 		compactIndex = rc.appliedIndex - snapshotCatchUpEntriesN
 	}
@@ -402,6 +419,7 @@ func (rc *raftNode) maybeTriggerSnapshot() {
 	}
 
 	log.Printf("compacted log at index %d", compactIndex)
+	// 6. 最后更新当前已快照的日志索引
 	rc.snapshotIndex = rc.appliedIndex
 }
 
@@ -414,6 +432,7 @@ func (rc *raftNode) serveChannels() {
 	if err != nil {
 		panic(err)
 	}
+	// 利用 raft 实例的内存状态机初始化 snapshot 相关属性
 	rc.confState = snap.Metadata.ConfState
 	rc.snapshotIndex = snap.Metadata.Index
 	rc.appliedIndex = snap.Metadata.Index
@@ -434,13 +453,14 @@ func (rc *raftNode) serveChannels() {
 
 		for rc.proposeC != nil && rc.confChangeC != nil {
 			select {
+			// 循环监听来自 kvstore 的请求消息
 			case prop, ok := <-rc.proposeC:
 				if !ok {
 					// 发生异常将proposeC置空
 					rc.proposeC = nil
 				} else {
 					// blocks until accepted by raft state machine
-					// 阻塞直到消息被处理
+					// 调用底层的 raft 核心库的 node 的 Propose 接口来处理请求
 					rc.node.Propose(context.TODO(), []byte(prop))
 				}
 			// 收到上层应用通过 confChangeC远远传递过来的数据
@@ -471,9 +491,11 @@ func (rc *raftNode) serveChannels() {
 		// 读取 node.readyc 通道
 		// 该通道是 etcd-raft 组件与上层应用交互的主要channel之一
 		// 其中传递的 Ready 实例也封装了很多信息
+		//1. 收到底层协议库的 Ready 通知
 		case rd := <-rc.node.Ready():
 			// 将当前 etcd raft 组件的状态信息，以及待持久化的 Entry 记录先记录到 WAL 日志文件中，
 			// 即使之后宕机，这些信息也可以在节点下次启动时，通过前面回放 WAL 日志的方式进行恢复
+			// 2. 先将 Ready 中需要被持久化的数据保存到 WAL 日志文件（在消息转发前）
 			rc.wal.Save(rd.HardState, rd.Entries)
 			// 检测到 etcd-raft 组件生成了新的快照数据
 			if !raft.IsEmptySnap(rd.Snapshot) {
@@ -497,7 +519,7 @@ func (rc *raftNode) serveChannels() {
 			// 所以节点每处理 10000 条(默认值) Entry 记录，就会触发一次创建快照的过程，
 			// 同时 WAL 会释放一些日志文件的句柄，raftLog.storage 也会压缩其保存的 Entry 记录
 			rc.maybeTriggerSnapshot()
-			// 上层应用处理完该 Ready 实例，通知 etcd-raft 纽件准备返回下一个 Ready 实例
+			// 7. 通知底层 raft 核心库，当前的指令已经提交应用完成，这使得 raft 核心库可以发送下一个 Ready 指令了。
 			rc.node.Advance()
 
 		case err := <-rc.transport.ErrorC:

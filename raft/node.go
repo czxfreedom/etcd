@@ -49,39 +49,50 @@ func (a *SoftState) equal(b *SoftState) bool {
 // Ready encapsulates the entries and messages that are ready to read,
 // be saved to stable storage, committed or sent to other peers.
 // All fields in Ready are read-only.
+// Ready 结构包装了事务日志，以及需要发送给其它 peer 的消息指令，
+//这些字段都是只读的，且有些必须进行持久化，或者已经可以提交应用。
 type Ready struct {
 	// The current volatile state of a Node.
 	// SoftState will be nil if there is no update.
 	// It is not required to consume or store SoftState.
+	// 包含了内存中的状态，即瞬时状态数据
 	*SoftState
 
 	// The current state of a Node to be saved to stable storage BEFORE
 	// Messages are sent.
 	// HardState will be equal to empty state if there is no update.
+	// 包含了持久化的状态，即在消息发送给其它节点前需要保存到磁盘
 	pb.HardState
 
 	// ReadStates can be used for node to serve linearizable read requests locally
 	// when its applied index is greater than the index in ReadState.
 	// Note that the readState will be returned when raft receives msgReadIndex.
 	// The returned is only valid for the request that requested to read.
+	// 用于节点提供本地的线性化读请求，但其条件是节点的 appliedIndex 必须要大于 ReadState 中的 index，
+	//这容易理解，否则会造成客户端的读的数据的不一致
 	ReadStates []ReadState
 
 	// Entries specifies entries to be saved to stable storage BEFORE
 	// Messages are sent.
+	// 用于节点提供本地的线性化读请求，
+	// 表示在发送其它节点之前需要被持久化的状态数据
 	Entries []pb.Entry
 
 	// Snapshot specifies the snapshot to be saved to stable storage.
+	// 与快照相关，指定了可以持久化的 snapshot 数据
 	Snapshot pb.Snapshot
 
 	// CommittedEntries specifies entries to be committed to a
 	// store/state-machine. These have previously been committed to stable
 	// store.
+	// 可以被提交应用到状态机的状态数据
 	CommittedEntries []pb.Entry
 
 	// Messages specifies outbound messages to be sent AFTER Entries are
 	// committed to stable storage.
 	// If it contains a MsgSnap message, the application MUST report back to raft
 	// when the snapshot has been received or has failed by calling ReportSnapshot.
+	// 当 Entries 被持久化后，需要转发到其它节点的消息
 	Messages []pb.Message
 
 	// MustSync indicates whether the HardState and Entries must be synchronously

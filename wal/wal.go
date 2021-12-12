@@ -36,10 +36,15 @@ import (
 )
 
 const (
+	// 元数据类型日志项，被写在每个日志文件的头部，具体内容可以任意，包括空值
 	metadataType int64 = iota + 1
+	// 实际的数据，即日志存储中的关键数据
 	entryType
+	// 表示保存的为 HardState 类型的数据
 	stateType
+	// 前一个 WAL 日志记录数据的 crc 值
 	crcType
+	// 表示快照类型的日志记录，它表示当前 Snapshot 位于哪个日志记录，保存的是索引(Term,Index)数据
 	snapshotType
 
 	// warnSyncDuration is the amount of time allotted to an fsync before
@@ -72,16 +77,21 @@ var (
 // A newly created WAL is in append mode, and ready for appending records.
 // A just opened WAL is in read mode, and ready for reading records.
 // The WAL will be ready for appending after reading out all the previous records.
+// WAL 是持久化存在的逻辑表示。并且要么处于读模式要么处于追加模式。
+// 新创建的 WAL 处于追加模式，可用于记录追加。
+// 刚打开的 WAL 处于读模式，可用于记录读取。
+// 当读完之前所有的 WAL 记录后，WAL 才可用于记录追加。
 type WAL struct {
 	lg *zap.Logger
-
+	// 日志存储目录
 	dir string // the living directory of the underlay files
 
 	// dirFile is a fd for the wal directory for syncing on Rename
+	// 文件描述符，用于 WAL 目录同步重命名操作
 	dirFile *os.File
-
+	// 元数据，在创建日志文件时，在写在文件头位置
 	metadata []byte           // metadata recorded at the head of each WAL
-	state    raftpb.HardState // hardstate recorded at the head of WAL
+	state    raftpb.HardState // hardstate recorded at the head of WAL节点在回复消息时，必须先进行持久化保持的状态。
 
 	start     walpb.Snapshot // snapshot to start reading
 	decoder   *decoder       // decoder to decode records

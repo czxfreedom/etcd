@@ -100,7 +100,7 @@ func (p *pipeline) handle() {
 		select {
 		case m := <-p.msgc:
 			start := time.Now()
-			err := p.post(pbutil.MustMarshal(&m))
+			err := p.post(pbutil.MustMarshal(&m)) // 发送消息
 			end := time.Now()
 
 			if err != nil {

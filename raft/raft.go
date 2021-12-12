@@ -1386,6 +1386,8 @@ func stepFollower(r *raft, m pb.Message) error {
 }
 
 func (r *raft) handleAppendEntries(m pb.Message) {
+	// 消息中的索引不能小于节点已经提交的消息的索引，否则不追加消息，以已提交的索引作为参数直接回复
+
 	if m.Index < r.raftLog.committed {
 		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed})
 		return
