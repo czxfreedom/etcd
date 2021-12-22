@@ -22,8 +22,10 @@ import pb "go.etcd.io/etcd/raft/raftpb"
 // might need to truncate the log before persisting unstable.entries.
 type unstable struct {
 	// the incoming unstable snapshot, if any.
+	//便于我们更好的从硬盘中恢复unstable部分
 	snapshot *pb.Snapshot
 	// all entries that have not yet been written to storage.
+	//对应论文的 log[]
 	entries []pb.Entry
 	offset  uint64
 

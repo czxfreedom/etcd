@@ -114,11 +114,12 @@ func (c *Config) Clone() Config {
 // ProgressTracker tracks the currently active configuration and the information
 // known about the nodes and learners in it. In particular, it tracks the match
 // index for each peer which in turn allows reasoning about the committed index.
+
 type ProgressTracker struct {
 	Config
-
+	//从leader视角上 每个follow的进度怎么样
 	Progress ProgressMap
-
+	//记录follow投票情况,
 	Votes map[uint64]bool
 
 	MaxInflight int

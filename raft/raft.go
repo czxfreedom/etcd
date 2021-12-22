@@ -255,13 +255,14 @@ type raft struct {
 	// 节点 id 编号
 	id uint64
 	// 任期编号
-	Term uint64
+	Term uint64 //论文 currentTerm
 	// 选举了谁当 leader（投票给了谁）
-	Vote uint64
+	Vote uint64 //论文 votedFor
 
 	readStates []ReadState
 
 	// 日志（未持久化 + 持久化都有）
+	//里面有对应论文中的 log[]
 	raftLog *raftLog
 
 	maxMsgSize         uint64
@@ -665,7 +666,7 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 // tickElection is run by followers and candidates after r.electionTimeout.
 func (r *raft) tickElection() {
 	r.electionElapsed++
-
+	//在规定时间内没有听到leader的心跳的话, 给自己发一个 msgHup(希望自己能成为candidate的一个message)
 	if r.promotable() && r.pastElectionTimeout() {
 		r.electionElapsed = 0
 		r.Step(pb.Message{From: r.id, Type: pb.MsgHup})
@@ -702,6 +703,7 @@ func (r *raft) becomeFollower(term uint64, lead uint64) {
 	// 这个很重要
 	r.step = stepFollower
 	r.reset(term)
+	//会触发
 	r.tick = r.tickElection
 	r.lead = lead
 	r.state = StateFollower
@@ -775,7 +777,11 @@ func (r *raft) becomeLeader() {
 
 // campaign transitions the raft instance to candidate state. This must only be
 // called after verifying that this is a legitimate transition.
+//竞选
+//活动将raft实例转换为候选状态。这只能是
+//在验证这是合法转换后调用。
 func (r *raft) campaign(t CampaignType) {
+	//是否可以被升级
 	if !r.promotable() {
 		// This path should not be hit (callers are supposed to check), but
 		// better safe than sorry.
@@ -793,9 +799,11 @@ func (r *raft) campaign(t CampaignType) {
 		voteMsg = pb.MsgVote
 		term = r.Term
 	}
+
 	if _, _, res := r.poll(r.id, voteRespMsgType(voteMsg), true); res == quorum.VoteWon {
 		// We won the election after voting for ourselves (which must mean that
 		// this is a single-node cluster). Advance to the next state.
+		//单点  自己选自己 多半情况 不会进入这边
 		if t == campaignPreElection {
 			r.campaign(campaignElection)
 		} else {
@@ -812,6 +820,7 @@ func (r *raft) campaign(t CampaignType) {
 		}
 		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	}
+	//征集选票
 	for _, id := range ids {
 		if id == r.id {
 			continue
@@ -823,6 +832,7 @@ func (r *raft) campaign(t CampaignType) {
 		if t == campaignTransfer {
 			ctx = []byte(t)
 		}
+		//对每一个id发送投票请求 MsgVote
 		r.send(pb.Message{Term: term, To: id, Type: voteMsg, Index: r.raftLog.lastIndex(), LogTerm: r.raftLog.lastTerm(), Context: ctx})
 	}
 }
@@ -940,8 +950,10 @@ func (r *raft) Step(m pb.Message) error {
 
 	case pb.MsgVote, pb.MsgPreVote:
 		// We can vote if this is a repeat of a vote we've already cast...
+		//已经给一个人投票了 这边还可以重复投票
 		canVote := r.Vote == m.From ||
 			// ...we haven't voted and we don't think there's a leader yet in this term...
+			//follow目前还没投过票也没有leader
 			(r.Vote == None && r.lead == None) ||
 			// ...or this is a PreVote for a future term...
 			(m.Type == pb.MsgPreVote && m.Term > r.Term)
@@ -1306,6 +1318,7 @@ func stepCandidate(r *raft, m pb.Message) error {
 		r.becomeFollower(m.Term, m.From) // always m.Term == r.Term
 		r.handleSnapshot(m)
 	case myVoteRespType:
+		//读取投票结果
 		gr, rj, res := r.poll(m.From, m.Type, !m.Reject)
 		r.logger.Infof("%x has received %d %s votes and %d vote rejections", r.id, gr, m.Type, rj)
 		switch res {
@@ -1313,7 +1326,9 @@ func stepCandidate(r *raft, m pb.Message) error {
 			if r.state == StatePreCandidate {
 				r.campaign(campaignElection)
 			} else {
+				//成为领导者
 				r.becomeLeader()
+				//给每个follower广播发送心跳
 				r.bcastAppend()
 			}
 		case quorum.VoteLost:
@@ -1337,6 +1352,7 @@ func stepFollower(r *raft, m pb.Message) error {
 			r.logger.Infof("%x not forwarding to leader %x at term %d; dropping proposal", r.id, r.lead, r.Term)
 			return ErrProposalDropped
 		}
+		//follower收到客户端的请求会把请求重定向 发给自己的leader
 		m.To = r.lead
 		r.send(m)
 	case pb.MsgApp:
@@ -1622,7 +1638,8 @@ func (r *raft) increaseUncommittedSize(ents []pb.Entry) bool {
 	for _, e := range ents {
 		s += uint64(PayloadSize(e))
 	}
-
+	//现在已经有很多日志还来不及commit 然后我现在还需要加入大量的entries的话 可能就超过他的预期
+	//那我们可能处理不了
 	if r.uncommittedSize > 0 && r.uncommittedSize+s > r.maxUncommittedSize {
 		// If the uncommitted tail of the Raft log is empty, allow any size
 		// proposal. Otherwise, limit the size of the uncommitted tail of the

@@ -145,6 +145,7 @@ type Node interface {
 	// Propose proposes that data be appended to the log. Note that proposals can be lost without
 	// notice, therefore it is user's job to ensure proposal retries.
 	// 提案递交；提案可能丢失，需要业务自己保证重试
+	//客户端通过这个像raft集群提交请求
 	Propose(ctx context.Context, data []byte) error
 	// ProposeConfChange proposes a configuration change. Like any proposal, the
 	// configuration change may be dropped with or without an error being

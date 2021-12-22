@@ -24,6 +24,7 @@ import (
 type raftLog struct {
 	// storage contains all stable entries since the last snapshot.
 	// 用于保存自从最后一次snapshot之后提交的数据
+	//持久化
 	storage Storage
 
 	// unstable contains all unstable entries and snapshot.
@@ -36,10 +37,12 @@ type raftLog struct {
 	// committed保存是写入持久化存储中的最高index，而applied保存的是传入状态机中的最高index
 	// 即一条日志首先要提交成功（即committed），才能被applied到状态机中
 	// 因此以下不等式一直成立：applied <= committed
+	//对应论文的 commit index
 	committed uint64
 	// applied is the highest log position that the application has
 	// been instructed to apply to its state machine.
 	// Invariant: applied <= committed
+	//对应 论文的lastApplied
 	applied uint64
 
 	logger Logger
