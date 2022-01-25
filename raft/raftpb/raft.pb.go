@@ -82,15 +82,16 @@ func (EntryType) EnumDescriptor() ([]byte, []int) { return fileDescriptorRaft, [
 
 type MessageType int32
 
+//https://www.jianshu.com/p/267e1d626c22
 const (
-	MsgHup            MessageType = 0
-	MsgBeat           MessageType = 1
-	MsgProp           MessageType = 2
-	MsgApp            MessageType = 3
-	MsgAppResp        MessageType = 4
-	MsgVote           MessageType = 5
-	MsgVoteResp       MessageType = 6
-	MsgSnap           MessageType = 7
+	MsgHup            MessageType = 0 //MsgHup用于开启选举。假如Follower和Candidate没有收到心跳，则开启一轮新的选举
+	MsgBeat           MessageType = 1 //MsgBeat 是一个内部类型，在tickHeartbeat(tickElection外的另一个时钟方法)中触发Leader向Follower发送心跳信号MsgHeartbeat
+	MsgProp           MessageType = 2 //MsgProp提出向log entry追加日志的提议，这些提议将被重定向给Leader，视作Leader的本地消息，因此在send中我们不能将发送者的Term追加到待发送的提议中。
+	MsgApp            MessageType = 3 //MsgApp包含要复制的日志entry和当前的Term，在maybeSendAppend中发送该消息。假如无法正确获取Term和Entry，
+	MsgAppResp        MessageType = 4 //可能当前日志条目已经被snapshot了，因此发送snapshot。否则就发送追加这段entry的消息。
+	MsgVote           MessageType = 5 //MsgVote逻辑比较简单，在MsgHup开启选举后，在campaign中转变为Candidate发起投票。PreVote算法中，Candidate首先要确认自己能赢得集群中大多数节点的投票，
+	MsgVoteResp       MessageType = 6 //这样才会把自己的term增加，然后发起真正的投票。这种算法解决了网络分区节点在重新加入时，会中断集群的问题。
+	MsgSnap           MessageType = 7 //MsgSnap处理逻辑和MsgHeartbeat、MsgApp一致，除了在上文提到的maybeAppend中，假如不append，就install snapshot。
 	MsgHeartbeat      MessageType = 8
 	MsgHeartbeatResp  MessageType = 9
 	MsgUnreachable    MessageType = 10
